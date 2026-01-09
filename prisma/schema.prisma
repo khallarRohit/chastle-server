@@ -1,0 +1,166 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  PLAYER 
+  MODERATOR
+  ADMIN 
+  BOT
+}
+
+enum GameVariant {
+  BULLET
+  BLITZ
+  RAPID
+  CLASSICAL
+  CUSTOM
+}
+
+enum GameStatus {
+  PENDING     // Waiting in Lobby
+  IN_PROGRESS // Active
+  COMPLETED
+  ABORTED
+}
+
+enum EndReason {
+  CHECKMATE
+  STALEMATE
+  TIMEOUT
+  RESIGNATION
+  DRAW_AGREED
+  INSUFFICIENT_MATERIAL
+  ABANDONED
+}
+
+enum TournamentType {
+  SWISS
+  ARENA
+  ROUND_ROBIN
+}
+
+model User {
+  id String @id @default(uuid())
+  username String @unique
+  email String @unique
+  passwordHash String 
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  role UserRole @default(PLAYER)
+
+  // Ratings
+  ratings Rating[]
+  gamesAsWhite  Game[]    @relation("WhitePlayer")
+  gamesAsBlack  Game[]    @relation("BlackPlayer")
+  gamesWon      Game[]    @relation("GameWinner")
+
+  // Relations with other users
+  followedBy    Follows[] @relation("following")
+  following     Follows[] @relation("follower")
+
+  // Tournaments
+  organizedTournaments Tournament[] @relation("TournamentOrganizer")
+  participations       TournamentParticipant[]
+}
+
+model Follows {
+  followerId String
+  followingId String
+
+  follower User @relation("follower", fields: [followerId], references: [id])
+  following User @relation("following", fields: [followingId], references: [id])
+
+  @@id([followerId, followingId])
+}
+
+
+model Rating {
+  id String @id @default(uuid())
+  userId String 
+  user User @relation(fields: [userId], references: [id])
+
+  variant GameVariant 
+  rating      Float       @default(1200)
+  rd          Float       @default(350) // Rating Deviation (Confidence)
+  volatility  Float       @default(0.06)
+
+  @@unique([userId, variant]) // One rating per variant per user
+}
+
+model Game {
+  id String @id @default(uuid())
+
+  // Players
+  whiteId     String?     // Nullable for "Open Challenges" in Lobbies before accept
+  blackId     String?
+  white       User?       @relation("WhitePlayer", fields: [whiteId], references: [id])
+  black       User?       @relation("BlackPlayer", fields: [blackId], references: [id])
+
+  // Game Data
+  pgn         String      @db.Text // Portable Game Notation (The moves history)
+  fen         String      // Forsyth-Edwards Notation (Current board state)
+  timeControl String      // e.g., "180+0" (3 mins + 0 inc)
+  variant     GameVariant
+
+  // Status
+  status      GameStatus  @default(PENDING)
+  winnerId    String?
+  winner      User?       @relation("GameWinner", fields: [winnerId], references: [id])
+  endReason   EndReason?  // CHECKMATE, TIMEOUT, RESIGNATION, DRAW
+
+  // Tournament Context
+  tournamentId String?
+  tournament   Tournament? @relation(fields: [tournamentId], references: [id])
+
+  createdAt   DateTime    @default(now())
+  endedAt     DateTime?
+}
+
+
+model Tournament {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+
+  // RBAC Ownership: Only the organizer can edit/delete
+  organizerId String
+  organizer   User      @relation("TournamentOrganizer", fields: [organizerId], references: [id])
+
+  // Config
+  variant     GameVariant
+  type        TournamentType // ARENA or SWISS
+  startsAt    DateTime
+  endsAt      DateTime?
+
+  // Relations
+  games       Game[]
+  participants TournamentParticipant[]
+}
+
+model TournamentParticipant {
+  id            String     @id @default(uuid())
+  userId        String
+  tournamentId  String
+  
+  user          User       @relation(fields: [userId], references: [id])
+  tournament    Tournament @relation(fields: [tournamentId], references: [id])
+  
+  score         Float      @default(0) // Tournament points
+  
+  @@unique([userId, tournamentId])
+}
+
