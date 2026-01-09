@@ -3,7 +3,7 @@ import 'dotenv/config';
 
 export class RedisManager {
     private static instance: RedisManager;
-    private client: RedisClientType;
+    public client: RedisClientType;
 
     private constructor(){
         this.client = createClient({
